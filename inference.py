@@ -111,11 +111,27 @@ def resolve_data_directory(data_dir: str) -> tuple:
     )
 
 def resolve_models_directory(models_dir: str) -> str:
-    """Finds checkpoint directory, with intelligent fallbacks."""
+    """Finds checkpoint directory, searching directly and in nested subdirectories."""
+    # 1. Direct check in models_dir
     if os.path.exists(models_dir) and len(glob.glob(os.path.join(models_dir, "*.pt"))) > 0:
         return models_dir
 
-    # Check local packaged weights
+    # 2. Check for nested folder inside models_dir (e.g., models/lunar_ensemble_weights/*.pt)
+    if os.path.exists(models_dir):
+        for sub in os.listdir(models_dir):
+            sub_path = os.path.join(models_dir, sub)
+            if os.path.isdir(sub_path) and len(glob.glob(os.path.join(sub_path, "*.pt"))) > 0:
+                print(f"[INFO] Found model checkpoints in subdirectory: {sub_path}")
+                return sub_path
+
+    # 3. Check for unzipped folder in current working directory (e.g. ./lunar_ensemble_weights/*.pt)
+    for unzipped_name in ["lunar_ensemble_weights", "models"]:
+        local_cand = os.path.join(".", unzipped_name)
+        if os.path.exists(local_cand) and len(glob.glob(os.path.join(local_cand, "*.pt"))) > 0:
+            print(f"[INFO] Found model checkpoints at: {local_cand}")
+            return local_cand
+
+    # 4. Check local system path candidates
     local_candidates = [
         r"D:\Paradox Unstop\lunar_ensemble_weights",
         r"C:\Users\KHUSHI\.gemini\antigravity-ide\scratch\lunar_classification\models"
@@ -130,7 +146,7 @@ def resolve_models_directory(models_dir: str) -> str:
         f"Setup instructions:\n"
         f"1. Download the winning weights archive (1.77 GB) from:\n"
         f"   {WEIGHTS_GDRIVE_URL}\n"
-        f"2. Extract the .pt files directly into '{models_dir}/'.\n"
+        f"2. Extract the .pt files directly into '{models_dir}/' or './lunar_ensemble_weights/'.\n"
     )
 
 def main():
@@ -176,6 +192,8 @@ def main():
 
     for fam_name, builder_fn, loader, is_dual, pattern, weight in model_configs:
         ckpts = sorted(glob.glob(os.path.join(models_dir, pattern)))
+        if not ckpts:
+            ckpts = sorted(glob.glob(os.path.join(models_dir, "**", pattern), recursive=True))
         if not ckpts:
             print(f"Warning: No checkpoints found for {fam_name} with pattern '{pattern}' in {models_dir}. Skipping.")
             continue
