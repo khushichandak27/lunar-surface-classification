@@ -122,7 +122,7 @@ python inference.py --data_dir ./data --models_dir ./models --output_csv ./submi
 
 ### Download Pretrained Model Weights
 All 33 trained checkpoint models are available for download here:
-- **Google Drive Weights Archive**: `[LINK_TO_UPLOADED_GOOGLE_DRIVE_FOLDER]`
+- **Google Drive Weights Archive**: [lunar_ensemble_weights.zip (1.77 GB)](https://drive.google.com/file/d/1Kr22X-Kl6xe7h3g-E8021LdU3dPL0aix/view?usp=sharing)
 *(Download and extract the checkpoints into the `./models/` directory before running inference).*
 
 ---
