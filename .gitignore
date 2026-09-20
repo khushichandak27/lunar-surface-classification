@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data and large files
+data/
+*.zip
+*.tar.gz
+*.crdownload
+train_images/
+eval_images/
+
+# Model weights and checkpoints
+models/
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# Cache and temporary outputs
+outputs/
+*.npz
+*.log
+scratch/
+.system_generated/
+.user_uploaded/
+
+# Virtual environment
+env/
+venv/
+.venv/
+
+# IDE and OS files
+.vscode/
+.idea/
+.gemini/
+.DS_Store
+Thumbs.db
