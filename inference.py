@@ -17,7 +17,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.amp import autocast
-from tqdm import tqdm
 
 from src.dataset import LunarSurfaceDataset
 from src.models import (
@@ -28,6 +27,8 @@ from src.models import (
     build_efficientnet_b2,
     build_convnext_tiny
 )
+
+WEIGHTS_GDRIVE_URL = "https://drive.google.com/file/d/1Kr22X-Kl6xe7h3g-E8021LdU3dPL0aix/view?usp=sharing"
 
 def predict_tta(model: nn.Module, loader: DataLoader, device: torch.device, is_dual: bool = False) -> np.ndarray:
     model.eval()
@@ -52,9 +53,9 @@ def predict_tta(model: nn.Module, loader: DataLoader, device: torch.device, is_d
     return np.array(all_probs)
 
 def validate_submission_format(sub_df: pd.DataFrame, test_df: pd.DataFrame):
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 55)
     print("RUNNING STRICT SUBMISSION VALIDATION CHECKS")
-    print("=" * 50)
+    print("=" * 55)
     
     # Check 1: Row count
     assert len(sub_df) == len(test_df), f"[FAIL] Row count mismatch: expected {len(test_df)}, got {len(sub_df)}"
@@ -82,7 +83,55 @@ def validate_submission_format(sub_df: pd.DataFrame, test_df: pd.DataFrame):
     print(f"\nFinal Class Breakdown:")
     print(f"  Class 0 (Depth): {c0} ({c0 / len(sub_df) * 100:.2f}%)")
     print(f"  Class 1 (Rise):  {c1} ({c1 / len(sub_df) * 100:.2f}%)")
-    print("[SUCCESS] submission.csv is 100% competition-ready!\n")
+    print("[SUCCESS] submission.csv is 100% verified and competition-ready!\n")
+
+def resolve_data_directory(data_dir: str) -> tuple:
+    """Finds test metadata and evaluation images, with intelligent fallbacks."""
+    test_meta_path = os.path.join(data_dir, "test_metadata.csv")
+    eval_images_dir = os.path.join(data_dir, "eval_images")
+
+    if os.path.exists(test_meta_path) and os.path.exists(eval_images_dir):
+        return test_meta_path, eval_images_dir
+
+    # Known fallback locations
+    candidates = [
+        (r"D:\Paradox Unstop\test_metadata.csv", r"C:\Users\KHUSHI\.gemini\antigravity-ide\scratch\lunar_classification\data\eval_images"),
+        (r"C:\Users\KHUSHI\.gemini\antigravity-ide\scratch\lunar_classification\data\test_metadata.csv", r"C:\Users\KHUSHI\.gemini\antigravity-ide\scratch\lunar_classification\data\eval_images"),
+    ]
+    for m, img_dir in candidates:
+        if os.path.exists(m) and os.path.exists(img_dir):
+            print(f"[INFO] Using detected local dataset at:\n  Metadata: {m}\n  Images: {img_dir}")
+            return m, img_dir
+
+    raise FileNotFoundError(
+        f"\n[ERROR] Evaluation dataset not found at '{data_dir}'!\n"
+        f"Setup instructions:\n"
+        f"1. Run: python prepare_data.py --data_dir {data_dir}\n"
+        f"2. Or place 'test_metadata.csv' and 'eval_images/' inside '{data_dir}'.\n"
+    )
+
+def resolve_models_directory(models_dir: str) -> str:
+    """Finds checkpoint directory, with intelligent fallbacks."""
+    if os.path.exists(models_dir) and len(glob.glob(os.path.join(models_dir, "*.pt"))) > 0:
+        return models_dir
+
+    # Check local packaged weights
+    local_candidates = [
+        r"D:\Paradox Unstop\lunar_ensemble_weights",
+        r"C:\Users\KHUSHI\.gemini\antigravity-ide\scratch\lunar_classification\models"
+    ]
+    for c in local_candidates:
+        if os.path.exists(c) and len(glob.glob(os.path.join(c, "*.pt"))) > 0:
+            print(f"[INFO] Using detected local model checkpoints from: {c}")
+            return c
+
+    raise FileNotFoundError(
+        f"\n[ERROR] No model checkpoints (*.pt) found in '{models_dir}'!\n"
+        f"Setup instructions:\n"
+        f"1. Download the winning weights archive (1.77 GB) from:\n"
+        f"   {WEIGHTS_GDRIVE_URL}\n"
+        f"2. Extract the .pt files directly into '{models_dir}/'.\n"
+    )
 
 def main():
     parser = argparse.ArgumentParser(description="Lunar Surface Classification Inference Pipeline")
@@ -96,15 +145,13 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Inference device: {device} ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
 
-    test_meta_path = os.path.join(args.data_dir, "test_metadata.csv")
-    eval_images_dir = os.path.join(args.data_dir, "eval_images")
-    if not os.path.exists(test_meta_path):
-        raise FileNotFoundError(f"Missing {test_meta_path}. Place test_metadata.csv in {args.data_dir}")
+    test_meta_path, eval_images_dir = resolve_data_directory(args.data_dir)
+    models_dir = resolve_models_directory(args.models_dir)
 
     test_df = pd.read_csv(test_meta_path)
     print(f"Loaded {len(test_df)} test samples from {test_meta_path}")
 
-    # Data loaders for optical, stacked relief, and dual-branch
+    # Data loaders
     ds_optical = LunarSurfaceDataset(test_df, eval_images_dir, is_train=False, mode='optical')
     loader_optical = DataLoader(ds_optical, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
@@ -128,16 +175,16 @@ def main():
     active_weights = {}
 
     for fam_name, builder_fn, loader, is_dual, pattern, weight in model_configs:
-        ckpts = sorted(glob.glob(os.path.join(args.models_dir, pattern)))
+        ckpts = sorted(glob.glob(os.path.join(models_dir, pattern)))
         if not ckpts:
-            print(f"Warning: No checkpoints found for {fam_name} with pattern '{pattern}' in {args.models_dir}. Skipping.")
+            print(f"Warning: No checkpoints found for {fam_name} with pattern '{pattern}' in {models_dir}. Skipping.")
             continue
             
-        print(f"\nRunning inference for {fam_name} ({len(ckpts)} checkpoints found)...")
+        print(f"\nRunning inference for {fam_name} ({len(ckpts)} checkpoints)...")
         model = builder_fn().to(device)
         fold_probs = []
         for ckpt in ckpts:
-            print(f"  Loading {os.path.basename(ckpt)} + running TTA...")
+            print(f"  Loading {os.path.basename(ckpt)} + TTA...")
             state = torch.load(ckpt, weights_only=True, map_location=device)
             model.load_state_dict(state)
             probs = predict_tta(model, loader, device, is_dual=is_dual)
@@ -148,16 +195,15 @@ def main():
         print(f"  -> {fam_name} mean P(Rise): {family_predictions[fam_name].mean():.4f}")
 
     if not family_predictions:
-        raise RuntimeError("No model checkpoints were found! Please check --models_dir path.")
+        raise RuntimeError(f"No model checkpoints found in {models_dir}!")
 
-    # Normalize weights to active models
     total_w = sum(active_weights.values())
     norm_weights = {k: v / total_w for k, v in active_weights.items()}
-    print("\n" + "=" * 50)
-    print("ENSEMBLE WEIGHTS:")
+    print("\n" + "=" * 55)
+    print("NORMALIZED ENSEMBLE WEIGHTS:")
     for k, w in norm_weights.items():
-        print(f"  {k}: {w * 100:.1f}%")
-    print("=" * 50)
+        print(f"  {k:25s}: {w * 100:5.1f}%")
+    print("=" * 55)
 
     final_probs = np.zeros(len(test_df))
     for k, w in norm_weights.items():
@@ -173,9 +219,9 @@ def main():
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output_csv)), exist_ok=True)
     sub_df.to_csv(args.output_csv, index=False)
-    print(f"\nSubmission saved to: {args.output_csv}")
+    print(f"\nSaved submission to: {args.output_csv}")
 
-    # Run strict validation
+    # Validate
     validate_submission_format(sub_df, test_df)
 
 if __name__ == "__main__":
